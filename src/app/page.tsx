@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { faAdd, faArrowUp, faClose, faCoffee, faRotateRight} from '@fortawesome/free-solid-svg-icons';
-import { faGithub, faLinkedin } from '@fortawesome/free-brands-svg-icons';
+import { faAdd, faArrowUp, faClose, faCoffee, faRotateRight, faExpand, faWandSparkles, faEye } from '@fortawesome/free-solid-svg-icons';
+import { faGithub, faLinkedin, faGoogle } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Image from "next/image";
 import OpenAI from "openai";
@@ -13,6 +13,7 @@ import { getStorage, ref, uploadString, getDownloadURL, uploadBytes } from 'fire
 import { Card } from './types';
 import Notification from './notify';
 import axios from 'axios';
+import Header from './header';
 
 const openai = new OpenAI({
   apiKey: "", 
@@ -42,8 +43,11 @@ export default function Home() {
   const [showGeneratedCard, setShowGeneratedCard] = useState(false);  // show generated card
   const [notification, setNotification] = useState<{ message: string; type: 'error' | 'success' |'info' } | null>(null);  // notification message
   const [refetch, setRefetch] = useState(false);
+  const [showExpandedImage, setShowExpandedImage] = useState(false);
+  const [expandImageIndex, setExpandImageIndex] = useState<number | null>(null);
 
-  const systemPrompt = "";
+  const systemPrompt = `
+  `;
 
   // show notification
   const triggerNotification = (nMessage: string, nType: 'error' | 'success' | 'info') => {
@@ -208,11 +212,37 @@ export default function Home() {
   );
 
   const FlashCards = () => {
-    // show card with backgroung light gray and shadow. card has image with padding 4.
     return (
       <div className="flex flex-row gap-4 flex-wrap justify-center m-auto pb-12">
         {data.map((card, index) => (
-          <div key={index} className="bg-[#2e2e2e] shadow-lg rounded-md p-2">
+          <div key={index} className="relative bg-[#2e2e2e] shadow-lg rounded-md p-2 group">
+            {/* Overlay and buttons (visible on hover) */}
+            <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center rounded-md">
+              <div className="flex gap-4">
+                {/* Expand icon */}
+                <button
+                  onClick={() => {
+                    setShowExpandedImage(!showExpandedImage)
+                    setExpandImageIndex(index);
+                  }}
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  <FontAwesomeIcon icon={faExpand} />
+                </button>
+                {/* Guess icon */}
+                <button
+                  onClick={() => {}}
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  <FontAwesomeIcon icon={faWandSparkles} />
+                </button>
+                {/* Prompt icon */}
+                <button
+                  onClick={() => {}}
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  <FontAwesomeIcon icon={faEye} />
+                </button>
+              </div>
+            </div>
+            {/* Image */}
             <Image src={card.imageUrl} width={256} height={256} alt="Generated image" className="rounded-md" />
           </div>
         ))}
@@ -222,7 +252,6 @@ export default function Home() {
 
   // card component with generated image and prompt, and save button. top right corner has close button
   // card has light gray background and shadow. image located at the left side and prompt at the right side (use row flex with gap 4). below the prompt, there is a save button (use col flex with gap 4)
-
   const GeneratedCard = ({ imageUrl, prompt, onClose, onSave }: { imageUrl: string; prompt: string; onClose: () => void; onSave: () => void; }) => {
     return (
       <div className="relative flex flex-col gap-4 p-4">
@@ -261,7 +290,9 @@ export default function Home() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
+    <main className="flex min-h-screen flex-col items-center justify-between p-24 relative">
+      {/* show header */}
+      <Header />
       {/* show notification */}
       {notification && (
         <Notification
@@ -286,6 +317,15 @@ export default function Home() {
           </div>
         </div>
       )}
+      {/* show expanded image */}
+      {showExpandedImage && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="">
+            <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
+          </div>
+        </div>
+      )}
+      {/* show input field */}
       <div className="w-[80%] lg:max-w-5xl mx-auto flex items-center p-2 mb-8 fixed bottom-0 left-0 right-0 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
         <textarea
           tabIndex={0}
