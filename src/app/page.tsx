@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { faAdd, faArrowUp, faClose, faCoffee, faRotateRight, faExpand, faWandSparkles, faEye } from '@fortawesome/free-solid-svg-icons';
+import { faAdd, faArrowUp, faClose, faCoffee, faRotateRight, faExpand, faWandSparkles, faEye, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { faGithub, faLinkedin, faGoogle } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import Image from "next/image";
 import OpenAI from "openai";
-import { firebaseConfig } from './firebaseConfig';
+import { firebaseConfig, auth } from './firebaseConfig';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
@@ -37,6 +37,8 @@ export default function Home() {
   const [isFetchingFlashCards, setIsFetchingFlashCards] = useState(true);  // loading state for fetching flashcards
   const [input, setInput] = useState('');  // user input
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const guessTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [data, setData] = useState<Card[]>([]);  // flashcards from firebase database
   const [imageUrl, setImageUrl] = useState<string | null>(''); // image url from firebase storage
   const [rawImageUrl, setRawImageUrl] = useState<string | null>(""); // image url from openai
@@ -45,9 +47,107 @@ export default function Home() {
   const [refetch, setRefetch] = useState(false);
   const [showExpandedImage, setShowExpandedImage] = useState(false);
   const [expandImageIndex, setExpandImageIndex] = useState<number | null>(null);
+  const expandRef = useRef<HTMLButtonElement | null>(null);
+  const [grade, setGrade] = useState<number | null>(null);
+  const [guessMode, setGuessMode] = useState(false);
+  const [showPromptMode, setShowPromptMode] = useState(false);
+  const [inputGuess, setInputGuess] = useState('');
+  const [isComparing, setIsComparing] = useState(false);
+
+  // Close the expanded image if clicked outside
+  useEffect(() => {
+    const handleClickOutside = (event: any) => {
+        if (expandRef.current && !expandRef.current.contains(event.target)) {
+          setShowExpandedImage(false);
+        }
+        // if (guessTextareaRef.current && !guessTextareaRef.current.contains(event.target)) {
+        //   setGuessMode(false);
+        // }
+        if (promptTextareaRef.current && !promptTextareaRef.current.contains(event.target)) {
+          setShowPromptMode(false);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const systemPrompt = `
+  You will be given a original prompt and user guess. In the following format: [original prompt]\n<original prompt goes here> \n[user guess]\n<user guess goes here>.
+  You need to evaluate the user guess relative to the original prompt. 
+  You should determine how close user guess is to the original prompt in a scale of 0% to 100%. 
+  You MUST only return a single number. The number should be a percentage value. 
+  For example, if the user guess is 50% similar to the original prompt, you should return ONLY 50.
   `;
+
+  const compareUserInputWithPrompt = async (userInput: string, prompt: string) => {
+    console.log("comparing user guess...");
+    setIsComparing(true);
+    triggerNotification('We are comparing your guess...', 'info');
+    const fullPrompt = `
+    [original prompt]\n${prompt}\n[user guess]\n${userInput}
+    `;
+    const completion = await openai.chat.completions.create({
+      messages: [
+        {"role": "system", "content": systemPrompt},
+        {"role": "user", "content": fullPrompt},
+        ],
+      model: "gpt-4o-mini",
+    });
+    console.log('response form gpt', completion.choices[0].message.content);
+    const g = parseInt(completion.choices[0].message.content!);
+    setGrade(g);
+    saveGuessedCardInFirebaseDatabase(g);
+  };
+
+  // save user guessed card in firebase database under guessedCards collection with the same id as the original card
+  const saveGuessedCardInFirebaseDatabase = async (grade: number) => {
+    console.log("saving guessed card in firebase database...");
+    triggerNotification('We are saving your guessed card...', 'info');
+    
+    // Ensure user is authenticated and get the user's email
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+        console.error("User is not logged in or email is missing");
+        triggerNotification("User not authenticated", "error");
+        return;
+    }
+    
+    const userEmail = user.email;
+    const imgUrl = data[expandImageIndex!].imageUrl;
+    const prompt = data[expandImageIndex!].prompt;
+    const guess = inputGuess;
+
+    try {
+        // Reference to the user's document in 'guessedCards' collection
+        const userDocRef = doc(firestore, 'guessedCards', userEmail);
+        
+        // Reference to the 'cards' subcollection within the user's document
+        const cardsCollectionRef = collection(userDocRef, 'cards');
+        
+        const createdAt = new Date();
+        const newCard = {
+            id: data[expandImageIndex!].id,
+            imageUrl: imgUrl,
+            prompt: prompt,
+            guess: guess,
+            grade: grade,
+            createdAt: createdAt,
+        };
+
+        // Add the new card to the 'cards' subcollection
+        await setDoc(doc(cardsCollectionRef), newCard);
+
+        triggerNotification("Guessed card saved successfully", "success");
+        setIsComparing(false);
+        return true;
+    } catch (error) {
+        console.error("Error saving guessed card: ", error);
+        triggerNotification("Error saving guessed card", "error");
+        return false;
+    }
+  };
 
   // show notification
   const triggerNotification = (nMessage: string, nType: 'error' | 'success' | 'info') => {
@@ -63,6 +163,7 @@ export default function Home() {
       querySnapshot.forEach((doc) => {
         const data = doc.data();
         const food: Card = {
+          id: doc.id,
           imageUrl: data.imageUrl,
           prompt: data.prompt,
           createdAt: data.createdAt,
@@ -86,7 +187,7 @@ export default function Home() {
         prompt: input,
         createdAt: createdAt,
       };
-      await setDoc(doc(docRef, createdAt.toISOString()), newCard);
+      await setDoc(doc(docRef), newCard);
       triggerNotification("Flashcard saved successfully", "success");
       return true;
     } catch (error) {
@@ -197,6 +298,24 @@ export default function Home() {
     adjustTextareaHeight();
   }, [input]);
 
+  // for guess mode
+  const handleGuessInput = (e: any) => {
+    setInputGuess(e.target.value);
+    adjustGuessTextareaHeight();
+  };
+
+  const adjustGuessTextareaHeight = () => {
+    const textarea = guessTextareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustGuessTextareaHeight();
+  }, [inputGuess]);
+
   const loader = () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
       <circle cx={4} cy={12} r={3} fill="currentColor">
@@ -225,18 +344,25 @@ export default function Home() {
                     setShowExpandedImage(!showExpandedImage)
                     setExpandImageIndex(index);
                   }}
+                  ref={expandRef}
                   className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
                   <FontAwesomeIcon icon={faExpand} />
                 </button>
                 {/* Guess icon */}
                 <button
-                  onClick={() => {}}
+                  onClick={() => {
+                    setGuessMode(!guessMode);
+                    setExpandImageIndex(index);
+                  }}
                   className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
                   <FontAwesomeIcon icon={faWandSparkles} />
                 </button>
                 {/* Prompt icon */}
                 <button
-                  onClick={() => {}}
+                  onClick={() => {
+                    setShowPromptMode(!showPromptMode);
+                    setExpandImageIndex(index);
+                  }}
                   className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
                   <FontAwesomeIcon icon={faEye} />
                 </button>
@@ -322,6 +448,68 @@ export default function Home() {
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
           <div className="">
             <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
+          </div>
+        </div>
+      )}
+      {/* show geuss mode */}
+      {guessMode && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="flex flex-col gap-4">
+            <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
+            {/* show input for user guess */}
+            <div className="w-full lg:max-w-5xl mx-auto flex items-center p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
+              <textarea
+                tabIndex={0}
+                ref={guessTextareaRef}
+                className="flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2"
+                placeholder="Type your message..."
+                value={inputGuess}
+                onChange={handleGuessInput}
+                onKeyDown={handleKeyDown}
+                style={{ minHeight: '24px', maxHeight: '128px' }}
+              />
+              <button
+                disabled={isComparing}
+                onClick={() => {
+                  compareUserInputWithPrompt(inputGuess, data[expandImageIndex!].prompt);
+                }}
+                className={`flex items-center justify-center w-10 h-10 rounded-full shadow ${
+                  isComparing || inputGuess === '' ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
+              >
+                {!isComparing 
+                  ? <FontAwesomeIcon icon={faArrowUp} />
+                  : <span className='flex justify-center items-center text-white'>{loader()}</span>
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* show prompt mode */}
+      {showPromptMode && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+          <div className="flex flex-col gap-4">
+            <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
+            {/* show original prompt */}
+            <div className="w-full lg:max-w-5xl mx-auto flex items-center p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
+              <textarea
+                disabled={true}
+                tabIndex={0}
+                ref={promptTextareaRef}
+                className="flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2"
+                placeholder="Type your message..."
+                value={data[expandImageIndex!].prompt}
+              />
+              <button
+                onClick={() => {
+                  // copy to clipboard
+                  navigator.clipboard.writeText(data[expandImageIndex!].prompt);
+                }}
+                className={`flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black`}
+              >
+                <FontAwesomeIcon icon={faCopy} />
+              </button>
+            </div>
           </div>
         </div>
       )}
