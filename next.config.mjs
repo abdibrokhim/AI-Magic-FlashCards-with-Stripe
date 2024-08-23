@@ -22,6 +22,11 @@ const nextConfig = {
                 hostname: 'oaidalleapiprodscus.blob.core.windows.net',
                 port: '',
             },
+            {
+                protocol: 'https',
+                hostname: 'via.placeholder.com',
+                port: '',
+            },
         ],
     },
 };

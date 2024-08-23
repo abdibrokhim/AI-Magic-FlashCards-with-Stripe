@@ -10,10 +10,12 @@ import { firebaseConfig, auth } from './firebaseConfig';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
-import { Card } from './types';
+import { Card, GuessedCard } from './types';
 import Notification from './notify';
 import axios from 'axios';
 import Header from './header';
+import { onAuthStateChanged } from 'firebase/auth';
+import { User } from 'firebase/auth';
 
 const openai = new OpenAI({
   apiKey: "", 
@@ -36,10 +38,14 @@ export default function Home() {
   const [isSavingFlashcard, setIsSavingFlashcard] = useState(false);  // loading state for saving flashcard
   const [isFetchingFlashCards, setIsFetchingFlashCards] = useState(true);  // loading state for fetching flashcards
   const [input, setInput] = useState('');  // user input
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const guessTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const guessTextareaRef = useRef<HTMLDivElement | null>(null);
+  const promptTextareaRef = useRef<HTMLDivElement | null>(null);
+  const pointTextareaRef = useRef<HTMLDivElement | null>(null);
+  const expandRef = useRef<HTMLDivElement | null>(null);
   const [data, setData] = useState<Card[]>([]);  // flashcards from firebase database
+  const [guessedCards, setGuessedCards] = useState<GuessedCard[]>([]);  // guessed cards from firebase database
+  const [guessedCard, setGuessedCard] = useState<GuessedCard>();  // guessed cards from firebase database
   const [imageUrl, setImageUrl] = useState<string | null>(''); // image url from firebase storage
   const [rawImageUrl, setRawImageUrl] = useState<string | null>(""); // image url from openai
   const [showGeneratedCard, setShowGeneratedCard] = useState(false);  // show generated card
@@ -47,12 +53,14 @@ export default function Home() {
   const [refetch, setRefetch] = useState(false);
   const [showExpandedImage, setShowExpandedImage] = useState(false);
   const [expandImageIndex, setExpandImageIndex] = useState<number | null>(null);
-  const expandRef = useRef<HTMLButtonElement | null>(null);
   const [grade, setGrade] = useState<number | null>(null);
   const [guessMode, setGuessMode] = useState(false);
   const [showPromptMode, setShowPromptMode] = useState(false);
   const [inputGuess, setInputGuess] = useState('');
   const [isComparing, setIsComparing] = useState(false);
+  const [showPointMode, setShowPointMode] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [showPointCard, setShowPointCard] = useState(false);
 
   // Close the expanded image if clicked outside
   useEffect(() => {
@@ -60,11 +68,14 @@ export default function Home() {
         if (expandRef.current && !expandRef.current.contains(event.target)) {
           setShowExpandedImage(false);
         }
-        // if (guessTextareaRef.current && !guessTextareaRef.current.contains(event.target)) {
-        //   setGuessMode(false);
-        // }
-        if (promptTextareaRef.current && !promptTextareaRef.current.contains(event.target)) {
+        if (guessTextareaRef.current && !guessTextareaRef.current.contains(event.target as Node)) {
+          setGuessMode(false);
+        }
+        if (promptTextareaRef.current && !promptTextareaRef.current.contains(event.target as Node)) {
           setShowPromptMode(false);
+        }
+        if (pointTextareaRef.current && !pointTextareaRef.current.contains(event.target as Node)) {
+          setShowPointMode(false);
         }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -133,6 +144,7 @@ export default function Home() {
             prompt: prompt,
             guess: guess,
             grade: grade,
+            point: grade/10,
             createdAt: createdAt,
         };
 
@@ -141,6 +153,7 @@ export default function Home() {
 
         triggerNotification("Guessed card saved successfully", "success");
         setIsComparing(false);
+        setShowPointCard(true);
         return true;
     } catch (error) {
         console.error("Error saving guessed card: ", error);
@@ -154,28 +167,70 @@ export default function Home() {
     setNotification({ message: nMessage, type: nType });
   };
 
+  const fetchAllCards = async () => {
+    setIsFetchingFlashCards(true);
+    const querySnapshot = await getDocs(collection(firestore, 'flashcards'));
+    const cards: Card[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      const card: Card = {
+        id: doc.id,
+        imageUrl: data.imageUrl,
+        prompt: data.prompt,
+        createdAt: data.createdAt,
+      };
+      cards.push(card);
+    });
+    setData(cards);
+    setIsFetchingFlashCards(false);
+    console.log("data: ", cards);
+  };
+
   // get flashcards from firebase database
   useEffect(() => {
-    const fetchData = async () => {
-      setIsFetchingFlashCards(true);
-      const querySnapshot = await getDocs(collection(firestore, 'flashcards'));
-      const cards: Card[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const food: Card = {
-          id: doc.id,
-          imageUrl: data.imageUrl,
-          prompt: data.prompt,
-          createdAt: data.createdAt,
-        };
-        cards.push(food);
-      });
-      setData(cards);
-      setIsFetchingFlashCards(false);
-      console.log("data: ", cards);
-    };
-    fetchData();
+    fetchAllCards();
   }, [refetch]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+    });
+
+    return () => unsubscribe();
+}, [user]);
+
+  const fetchGuessedCards = async () => {
+    if (!user || !user.email) {
+      console.error("User is not logged in or email is missing");
+      triggerNotification("User not authenticated", "error");
+      return;
+    }
+    const userEmail = user.email;
+    const querySnapshot = await getDocs(collection(firestore, 'guessedCards', userEmail, 'cards'));
+    const cards: GuessedCard[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      const gCard: GuessedCard = {
+        id: data.id,
+        imageUrl: data.imageUrl,
+        prompt: data.prompt,
+        guess: data.guess,
+        grade: data.grade,
+        point: data.point,
+        createdAt: data.createdAt,
+      };
+      cards.push(gCard);
+    });
+    setGuessedCards(cards);
+    console.log("guessed cards: ", cards);
+  };
+  // get guessed cards from firebase database
+  useEffect(() => {
+    console.log("fetching guessed cards...");
+    console.log("user: ", user);
+    console.log("user email: ", user?.email);
+    fetchGuessedCards();
+  }, [user, refetch]);
 
   // Save flashcard in Firebase Database
   const saveFlashCardInFirebaseDatabase = async (imgUrl: string) => {
@@ -341,29 +396,38 @@ export default function Home() {
                 {/* Expand icon */}
                 <button
                   onClick={() => {
-                    setShowExpandedImage(!showExpandedImage)
                     setExpandImageIndex(index);
+                    setShowExpandedImage(!showExpandedImage)
                   }}
-                  ref={expandRef}
-                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black hover:bg-[#aaaaaa]">
                   <FontAwesomeIcon icon={faExpand} />
                 </button>
                 {/* Guess icon */}
                 <button
                   onClick={() => {
-                    setGuessMode(!guessMode);
                     setExpandImageIndex(index);
+                    const cardId = data[index!].id;
+                    console.log('cardId: ', cardId);
+                    const cond = guessedCards.map((card) => card.id).includes(cardId)
+                    console.log('cond: ', cond);
+                    if (cond && user !== null) {
+                      setShowPointMode(!showPointMode);
+                      setGuessedCard(guessedCards.filter((card) => card.id === cardId)[0]);
+                    } else {
+                      setGuessMode(!guessMode);
+                    }
                   }}
-                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black hover:bg-[#aaaaaa]">
                   <FontAwesomeIcon icon={faWandSparkles} />
                 </button>
                 {/* Prompt icon */}
                 <button
                   onClick={() => {
-                    setShowPromptMode(!showPromptMode);
                     setExpandImageIndex(index);
+                    // delay 2 seconds to allow the textarea to render
+                    setShowPromptMode(!showPromptMode);
                   }}
-                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black">
+                  className="flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black hover:bg-[#aaaaaa]">
                   <FontAwesomeIcon icon={faEye} />
                 </button>
               </div>
@@ -432,7 +496,7 @@ export default function Home() {
       <FlashCards />
       {/* show generated card as a modal */}
       {showGeneratedCard && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
           <div className="bg-[#2e2e2e] rounded-lg shadow-lg max-w-[800px] max-h-[600px] p-2">
             <GeneratedCard
               imageUrl={rawImageUrl!}
@@ -445,22 +509,21 @@ export default function Home() {
       )}
       {/* show expanded image */}
       {showExpandedImage && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          <div className="">
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
+          <div ref={expandRef} className="">
             <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
           </div>
         </div>
       )}
       {/* show geuss mode */}
       {guessMode && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          <div className="flex flex-col gap-4">
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
+          <div ref={guessTextareaRef} className="flex flex-col gap-4">
             <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
             {/* show input for user guess */}
             <div className="w-full lg:max-w-5xl mx-auto flex items-center p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
               <textarea
                 tabIndex={0}
-                ref={guessTextareaRef}
                 className="flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2"
                 placeholder="Type your message..."
                 value={inputGuess}
@@ -469,12 +532,12 @@ export default function Home() {
                 style={{ minHeight: '24px', maxHeight: '128px' }}
               />
               <button
-                disabled={isComparing}
+                disabled={isComparing || user === null || inputGuess === ''}
                 onClick={() => {
                   compareUserInputWithPrompt(inputGuess, data[expandImageIndex!].prompt);
                 }}
-                className={`flex items-center justify-center w-10 h-10 rounded-full shadow ${
-                  isComparing || inputGuess === '' ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
+                className={`flex items-center justify-center w-8 h-8 mr-2 rounded-full shadow ${
+                  isComparing || inputGuess === '' || user === null ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
               >
                 {!isComparing 
                   ? <FontAwesomeIcon icon={faArrowUp} />
@@ -485,30 +548,97 @@ export default function Home() {
           </div>
         </div>
       )}
+      {/* show point card after user guess */}
+      {showPointCard && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
+          <div className="bg-[#2e2e2e] rounded-lg shadow-lg max-w-[300px] max-h-[600px] p-2">
+            <div className="flex flex-col gap-2 items-center justify-center">
+              <p className='text-sm text-[#aaaaaa]'>Points recieved</p>
+              {/* <p className='text-lg text-white font-bold'>{grade}</p> */}
+              <p className='text-[42px] text-white font-bold'>{grade!/10}</p>
+              <div className="w-full lg:max-w-5xl flex items-center justify-between p-2 shadow-lg bg-[#2e2e2e] rounded-md">
+                <p className='text-sm text-white'>It means your <span className='text-md text-white font-bold'>Geussed Prompt</span> was <span className='text-md text-white font-bold underline'>60%</span> near to <span className='text-md text-white font-bold'>Actual Prompt</span></p>
+              </div>
+              <div className="rounded-md shadow-lg z-10 w-full">
+                <button
+                    onClick={() => {
+                      setShowPointCard(false);
+                      setGuessMode(false);
+                      fetchAllCards();
+                      fetchGuessedCards();
+                      setInputGuess('');
+                    }}
+                    className="block w-full text-black bg-[#eeeeee] text-center px-4 py-2 hover:bg-[#aaaaaa] hover:text-black rounded-md"
+                >
+                    Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* show prompt mode */}
       {showPromptMode && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
-          <div className="flex flex-col gap-4">
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
+          <div ref={promptTextareaRef} className="flex flex-col gap-4">
             <Image src={data[expandImageIndex!].imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
             {/* show original prompt */}
-            <div className="w-full lg:max-w-5xl mx-auto flex items-center p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
-              <textarea
-                disabled={true}
-                tabIndex={0}
-                ref={promptTextareaRef}
-                className="flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2"
-                placeholder="Type your message..."
-                value={data[expandImageIndex!].prompt}
-              />
+            <div className="w-full lg:max-w-5xl flex items-center p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
+              <p className='flex-1 max-w-[500px] resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2'>{data[expandImageIndex!].prompt}</p>
               <button
                 onClick={() => {
                   // copy to clipboard
                   navigator.clipboard.writeText(data[expandImageIndex!].prompt);
+                  triggerNotification('Prompt copied to clipboard', 'success');
                 }}
-                className={`flex items-center justify-center w-10 h-10 rounded-full shadow cursor-pointer bg-[#eeeeee] text-black`}
+                className={`flex items-center justify-center w-8 h-8 rounded-full shadow cursor-pointer bg-[#eeeeee] hover:bg-[#aaaaaa] text-black`}
               >
                 <FontAwesomeIcon icon={faCopy} />
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* show point mode when user already tried to guess the flashcard */}
+      {showPointMode && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-40">
+          <div ref={pointTextareaRef} className="flex flex-col gap-4 max-w-4xl items-center justify-center">
+            <Image src={guessedCard!.imageUrl} width={600} height={600} alt="Generated image" className="rounded-md" />
+            {/* show original prompt */}
+            <div className='flex flex-row gap-4 w-full'>
+              <div className="w-full mx-auto flex items-center justify-between p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
+                <div className='flex flex-col flex-1'>
+                  <p className='text-xs text-[#aaaaaa]'>Actual prompt</p>
+                  <p className='flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2'>{guessedCard!.prompt}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    // copy to clipboard
+                    navigator.clipboard.writeText(guessedCard!.prompt);
+                    triggerNotification('Prompt copied to clipboard', 'success');
+                  }}
+                  className={`flex items-center justify-center w-8 h-8 mr-2 rounded-full shadow cursor-pointer bg-[#eeeeee] hover:bg-[#aaaaaa] text-black`}
+                >
+                  <FontAwesomeIcon icon={faCopy} />
+                </button>
+              </div>
+              <div className="w-full mx-auto flex items-center justify-between p-2 mb-8 shadow-lg gap-4 bg-[#2e2e2e] rounded-md">
+                <div className='flex flex-col flex-1'>
+                  <p className='text-xs text-[#aaaaaa]'>Your guess</p>
+                  <p className='flex-1 resize-none border-none focus:ring-0 outline-none bg-transparent text-white p-2'>{guessedCard!.guess}</p>
+                  <p className='text-xs text-[#aaaaaa]'>Points recieved: <span className='text-sm text-white font-bold'>{guessedCard!.point}</span></p>
+                </div>
+                <button
+                  onClick={() => {
+                    // copy to clipboard
+                    navigator.clipboard.writeText(guessedCard!.guess);
+                    triggerNotification('Prompt copied to clipboard', 'success');
+                  }}
+                  className={`flex items-center justify-center w-8 h-8 mr-2 rounded-full shadow cursor-pointer bg-[#eeeeee] hover:bg-[#aaaaaa] text-black`}
+                >
+                  <FontAwesomeIcon icon={faCopy} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -526,10 +656,10 @@ export default function Home() {
           style={{ minHeight: '24px', maxHeight: '128px' }}
         />
         <button
-          disabled={isGeneratingImage || input === ''}
+          disabled={isGeneratingImage || input === '' || user === null}
           onClick={() => handleGenerateImage(input)}
           className={`flex items-center justify-center w-10 h-10 rounded-full shadow ${
-            isGeneratingImage || input === '' ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
+            isGeneratingImage || input === '' || user === null ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
         >
           {!isGeneratingImage 
             ? <FontAwesomeIcon icon={faArrowUp} />
