@@ -18,7 +18,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { User } from 'firebase/auth';
 
 const openai = new OpenAI({
-  apiKey: "", 
+  apiKey: process.env.NEXT_PUBLIC_openaiApiKey, 
   dangerouslyAllowBrowser: true
 });
 
