@@ -8,7 +8,7 @@ import Image from "next/image";
 import OpenAI from "openai";
 import { firebaseConfig, auth } from './firebaseConfig';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc, addDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
 import { Card, GuessedCard } from './types';
 import Notification from './notify';
@@ -232,22 +232,63 @@ export default function Home() {
     fetchGuessedCards();
   }, [user, refetch]);
 
+  // fetch userCards from firebase database and return length of the cards
+  const fetchUserCards = async () => {
+    if (!user || !user.email) {
+      console.error("User is not logged in or email is missing");
+      triggerNotification("User not authenticated", "error");
+      return;
+    }
+    const userEmail = user.email;
+    const querySnapshot = await getDocs(collection(firestore, 'userCards', userEmail, 'cards'));
+    const cards: Card[] = [];
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      const card: Card = {
+        id: data.id,
+        imageUrl: data.imageUrl,
+        prompt: data.prompt,
+        createdAt: data.createdAt,
+      };
+      cards.push(card);
+    });
+    console.log("user cards: ", cards);
+    return cards.length;
+  };
+
+  // useEffect(() => {
+  //   console.log("fetching user cards...");
+  //   console.log("user: ", user);
+  //   console.log("user email: ", user?.email);
+  //   fetchUserCards();
+  // }, [user, refetch]);
+
   // Save flashcard in Firebase Database
   const saveFlashCardInFirebaseDatabase = async (imgUrl: string) => {
     try {
-      const docRef = collection(firestore, 'flashcards');
+      // Reference to the 'flashcards' collection
+      const flashcardsCollectionRef = collection(firestore, 'flashcards');
+      
       const createdAt = new Date();
       const newCard = {
         imageUrl: imgUrl,
-        prompt: input,
+        prompt: input,  // Make sure 'input' is defined and contains the prompt
         createdAt: createdAt,
       };
-      await setDoc(doc(docRef), newCard);
+  
+      // Add a new document to the 'flashcards' collection with auto-generated ID
+      const docRef = await addDoc(flashcardsCollectionRef, newCard);
+      
       triggerNotification("Flashcard saved successfully", "success");
-      return true;
+      
+      // Return the generated document ID
+      const docId = docRef.id;
+      console.log('Generated Document ID:', docId);
+      return docId;
     } catch (error) {
       console.error("Error saving flashcard: ", error);
       triggerNotification("Error saving flashcard", "error");
+      return null; // Return null in case of an error
     }
   };
 
@@ -314,14 +355,17 @@ export default function Home() {
       const imgUrl = await uploadImageToFirebaseStorage(imageBlob);
 
       console.log("saving flashcard in firebase database...");
-      if (await saveFlashCardInFirebaseDatabase(imgUrl!)) {
-        setShowGeneratedCard(false);
-        setInput('');
-        setRawImageUrl('');
-        setImageUrl(null);
-        setRefetch(!refetch);
+      const cardId = await saveFlashCardInFirebaseDatabase(imgUrl!)
+      if (cardId) {
+        // save card id in userCards collection
+        if(await saveUserCardIdsInFirebaseDatabase(cardId)) {
+          setShowGeneratedCard(false);
+          setInput('');
+          setRawImageUrl('');
+          setImageUrl(null);
+          setRefetch(!refetch);
+        }
       }
-
       if (imageUrl) {
         console.log('Image URL received from Firebase Storage:', imageUrl);
       }
@@ -329,10 +373,52 @@ export default function Home() {
     setIsSavingFlashcard(false);
   };
 
-  const handleKeyDown = (e: any) => {
+  // save only ids of user generated cards in firebase database under userCards collection
+  const saveUserCardIdsInFirebaseDatabase = async (cardId: string) => {
+    console.log("saving user card ids in firebase database...");
+    triggerNotification('We are saving your card...', 'info');
+    // Ensure user is authenticated and get the user's email
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      console.error("User is not logged in or email is missing");
+      triggerNotification("User not authenticated", "error");
+      return;
+    }
+    const userEmail = user.email;
+    try {
+      // Reference to the user's document in 'userCards' collection
+      const userDocRef = doc(firestore, 'userCards', userEmail);
+      
+      // Reference to the 'cards' subcollection within the user's document
+      const cardsCollectionRef = collection(userDocRef, 'cards');
+      
+      const createdAt = new Date();
+      const newCard = {
+          id: cardId,
+          createdAt: createdAt,
+      };
+
+      // Add the new card to the 'cards' subcollection
+      await setDoc(doc(cardsCollectionRef), newCard);
+
+      triggerNotification("Card saved successfully", "success");
+      return true;
+    } catch (error) {
+      console.error("Error saving card: ", error);
+      triggerNotification("Error saving card", "error");
+      return false;
+    }
+  };
+
+  const handleKeyDown = async (e: any) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleGenerateImage(input);
+      const cLen = await fetchUserCards();
+      if (cLen! < 0) {
+        handleGenerateImage(input)
+      } else {
+        triggerNotification('You have reached the limit of 10 cards', 'error');
+      }
     }
   };
 
@@ -657,7 +743,14 @@ export default function Home() {
         />
         <button
           disabled={isGeneratingImage || input === '' || user === null}
-          onClick={() => handleGenerateImage(input)}
+          onClick={async () => {
+            const cLen = await fetchUserCards();
+            if (cLen! < 0) {
+              handleGenerateImage(input)
+            } else {
+              triggerNotification('You have reached the limit of 10 cards', 'error');
+            }
+          }}
           className={`flex items-center justify-center w-10 h-10 rounded-full shadow ${
             isGeneratingImage || input === '' || user === null ? 'cursor-not-allowed bg-[#4e4e4e] text-black'  : 'cursor-pointer bg-[#eeeeee] text-black'}`}
         >

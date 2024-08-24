@@ -15,12 +15,14 @@
     "@fortawesome/free-solid-svg-icons": "^6.6.0",
     "@fortawesome/react-fontawesome": "^0.2.2",
     "@next/env": "^14.2.6",
+    "@stripe/stripe-js": "^4.3.0",
     "axios": "^1.7.4",
     "firebase": "^10.13.0",
     "next": "14.2.6",
     "openai": "^4.56.0",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "stripe": "^16.8.0"
   },
   "devDependencies": {
     "@types/node": "^20",

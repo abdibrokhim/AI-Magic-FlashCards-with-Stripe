@@ -9,7 +9,8 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/
 import { User } from 'firebase/auth';
 import Notification from './notify';
 import { GuessedCard } from './types';
-import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc, getDoc } from 'firebase/firestore';
+import getStripe from './api/utils/get-stripe';
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -26,6 +27,7 @@ export default function Header() {
     const profileCardRef = useRef<HTMLDivElement | null>(null); // Reference for login card
     const [points, setPoints] = useState<number>(0);
     const [notification, setNotification] = useState<{ message: string; type: 'error' | 'success' |'info' } | null>(null);  // notification message
+    const [needSubscription, setNeedSubscription] = useState<boolean>(true);
 
     // if user is not logged in, show login card every 2 minutes
     useEffect(() => {
@@ -33,7 +35,7 @@ export default function Header() {
             if (!user) {
                 setShowLoginCard(true);
             }
-        }, 120000);
+        }, 60000);
         return () => clearInterval(interval);
     }, [user]);
 
@@ -87,6 +89,15 @@ export default function Header() {
         return () => unsubscribe();
     }, [user]);
 
+    const getCurrentUser = () => {
+        return new Promise((resolve, reject) => {
+            const unsubscribe = onAuthStateChanged(auth, (user) => {
+                resolve(user);
+                unsubscribe();
+            }, reject);
+        });
+    };
+
     const handleLogout = () => {
         signOut(auth);
         setDropdownOpen(false); // Close the dropdown on logout
@@ -115,6 +126,59 @@ export default function Header() {
         };
     }, []);
 
+    const handleStripe = async () => {
+        const checkoutSession = await fetch('/api/checkout_sessions', {
+            method: 'POST',
+            headers: { origin: 'http://localhost:3000' },
+        })
+        const checkoutSessionJson = await checkoutSession.json()
+      
+        const stripe = await getStripe()
+        const {error} = await stripe.redirectToCheckout({
+            sessionId: checkoutSessionJson.id,
+        })
+      
+        if (error) {
+          console.warn(error.message)
+        }
+    };
+
+    // fetch user subscription from firebase collection=subscriptions where email=user.email. save to state subscribeed
+    const fetchUserSubscription = async () => {
+        // const currentUser = await getCurrentUser();
+
+      if (!user || !user.email) {
+        console.error("User is not logged in or email is missing");
+        triggerNotification("User not authenticated", "error");
+        return;
+      }
+    
+      const userEmail = user.email;
+      const docRef = doc(firestore, 'subscriptions', userEmail);
+    
+      try {
+        const docSnap = await getDoc(docRef);
+    
+        if (docSnap.exists()) {
+            setNeedSubscription(false);
+        } else {
+            setNeedSubscription(true);
+        }
+      } catch (error) {
+        console.error("Error fetching user subscription: ", error);
+        triggerNotification("Error fetching subscription status", "error");
+      }
+    };
+
+    // get user subscription from firebase database
+    useEffect(() => {
+        console.log("fetching user subscription...");
+        console.log("user: ", user);
+        console.log("user email: ", user?.email);
+        fetchUserSubscription();
+    }, [user]);
+
+    // login component
     const Login = () => {
         const handleGoogleLogin = async () => {
             try {
@@ -138,6 +202,7 @@ export default function Header() {
         );
     };
 
+    // profile component
     const Profile = () => {
         return (
             <div className="flex flex-col gap-4 justify-center m-auto p-4" ref={profileCardRef}>
@@ -166,6 +231,22 @@ export default function Header() {
                         <FontAwesomeIcon icon={faArrowsRotate} />
                     </button>
                 </div>
+                {needSubscription ? (
+                    <div className='text-sm text-[#aaaaaa]'>
+                        <button 
+                            className='text-md text-white font-bold underline'
+                            onClick={
+                                () => {
+                                    handleStripe();
+                                }}
+                                >SUBSCRIBE
+                        </button>
+                        <span> to get <span className='text-md text-white font-bold italic'>100</span> generations for a month.</span>
+                    </div>
+                    ) : (
+                        <p className='text-sm text-[#aaaaaa]'>Your current plan <span className='text-md text-white font-bold'>USD $10/month</span></p>
+                    )
+                }
             </div>
         )
     };
