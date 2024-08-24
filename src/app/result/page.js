@@ -9,6 +9,7 @@ import { firebaseConfig } from '../firebaseConfig';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import Notification from '../notify';
+import { Analytics } from "@vercel/analytics/react"
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -133,6 +134,7 @@ const ResultPage = () => {
 
     return (
         <div className="max-w-sm mx-auto text-center mt-16 text-white">
+            <Analytics />
             {/* show notification */}
             {notification && (
                 <Notification

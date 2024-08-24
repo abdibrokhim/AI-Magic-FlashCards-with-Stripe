@@ -16,6 +16,7 @@ import axios from 'axios';
 import Header from './header';
 import { onAuthStateChanged } from 'firebase/auth';
 import { User } from 'firebase/auth';
+import { Analytics } from "@vercel/analytics/react"
 
 const openai = new OpenAI({
   apiKey: process.env.NEXT_PUBLIC_openaiApiKey, 
@@ -414,7 +415,7 @@ export default function Home() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       const cLen = await fetchUserCards();
-      if (cLen! < 0) {
+      if (cLen! < 10) {
         handleGenerateImage(input)
       } else {
         triggerNotification('You have reached the limit of 10 cards', 'error');
@@ -567,6 +568,7 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24 relative">
+      <Analytics />
       {/* show header */}
       <Header />
       {/* show notification */}
@@ -643,7 +645,7 @@ export default function Home() {
               {/* <p className='text-lg text-white font-bold'>{grade}</p> */}
               <p className='text-[42px] text-white font-bold'>{grade!/10}</p>
               <div className="w-full lg:max-w-5xl flex items-center justify-between p-2 shadow-lg bg-[#2e2e2e] rounded-md">
-                <p className='text-sm text-white'>It means your <span className='text-md text-white font-bold'>Geussed Prompt</span> was <span className='text-md text-white font-bold underline'>60%</span> near to <span className='text-md text-white font-bold'>Actual Prompt</span></p>
+                <p className='text-sm text-white'>It means your <span className='text-md text-white font-bold'>Geussed Prompt</span> was <span className='text-md text-white font-bold underline'>{grade}%</span> near to <span className='text-md text-white font-bold'>Actual Prompt</span></p>
               </div>
               <div className="rounded-md shadow-lg z-10 w-full">
                 <button
@@ -745,7 +747,7 @@ export default function Home() {
           disabled={isGeneratingImage || input === '' || user === null}
           onClick={async () => {
             const cLen = await fetchUserCards();
-            if (cLen! < 0) {
+            if (cLen! < 10) {
               handleGenerateImage(input)
             } else {
               triggerNotification('You have reached the limit of 10 cards', 'error');
