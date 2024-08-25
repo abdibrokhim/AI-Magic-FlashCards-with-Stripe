@@ -16,7 +16,7 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 const firestore = getFirestore(app);
 
-export default ResultPage = () => {
+const ResultPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
     const session_id = searchParams.get('session_id');
@@ -180,3 +180,5 @@ export default ResultPage = () => {
         </div>
     );
 }
+
+export default ResultPage;
