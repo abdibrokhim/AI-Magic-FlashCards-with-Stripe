@@ -16,7 +16,7 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 const firestore = getFirestore(app);
 
-const ResultPage = () => {
+export default ResultPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
     const session_id = searchParams.get('session_id');
