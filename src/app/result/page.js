@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { initializeApp } from 'firebase/app';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -181,4 +181,12 @@ const ResultPage = () => {
     );
 }
 
-export default ResultPage;
+const ResultPageWrapper = () => {
+    return (
+        <Suspense fallback={<div>Loading...</div>}>
+            <ResultPage />
+        </Suspense>
+    );
+};
+
+export default ResultPageWrapper;
