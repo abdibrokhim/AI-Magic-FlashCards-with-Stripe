@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { firebaseConfig } from './firebaseConfig';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faGoogle } from '@fortawesome/free-brands-svg-icons';
-import { faArrowsRotate } from '@fortawesome/free-solid-svg-icons';
+import { faDiscord, faGithub, faGoogle, faLinkedin } from '@fortawesome/free-brands-svg-icons';
+import { faArrowsRotate, faCircleDollarToSlot, faEnvelope } from '@fortawesome/free-solid-svg-icons';
 import { onAuthStateChanged } from 'firebase/auth';
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
@@ -252,7 +252,7 @@ export default function Header() {
     };
 
     return (
-        <header className="flex justify-between items-center p-4 text-white absolute top-4 right-2">
+        <header className="flex flex-col gap-4 justify-between items-end p-4 text-white absolute top-4 right-2">
             {/* show notification */}
             {notification && (
                 <Notification
@@ -316,6 +316,34 @@ export default function Header() {
                     </button>
                 )}
             </div>
+        <div className="flex flex-col gap-2 items-end justify-start mt-[200px]">
+          <a href="mailto:abdibrokhim@gmail.com" className={`textButton flex items-center justify-start lg:justify-start my-1 transition text-gray-400 text-sm hover:text-white hover:underline hover:font-bold
+          `}
+            target="_blank" rel="noreferrer noopener">
+            <i className="fas fa-fw fa-envelope mr-2"></i>
+            <div className="text"><FontAwesomeIcon icon={faEnvelope} className='mr-2' /> contact</div>
+          </a>
+          <a href="https://buymeacoffee.com/abdibrokhim/" className={`textButton flex items-center justify-start lg:justify-start my-1 transition text-gray-400 text-sm hover:text-white hover:underline hover:font-bold
+            `} target="_blank" rel="noreferrer noopener">
+            <i className="fas fa-fw fa-donate mr-2"></i>
+            <div className="text"><FontAwesomeIcon icon={faCircleDollarToSlot} className='mr-2' /> support</div>
+          </a>
+          <a href="https://github.com/abdibrokhim/AI-Magic-FlashCards-with-Stripe" className={`textButton flex items-center justify-start lg:justify-start my-1 transition text-gray-400 text-sm hover:text-white hover:underline hover:font-bold
+            `} target="_blank" rel="noreferrer noopener">
+            <i className="fas fa-fw fa-code mr-2"></i>
+            <div className="text"><FontAwesomeIcon icon={faGithub} className='mr-2' /> github</div>
+          </a>
+          <a href="https://discord.gg/nVtmDUN2sR" className={`textButton flex items-center justify-start lg:justify-start my-1 transition text-gray-400 text-sm hover:text-white hover:underline hover:font-bold
+            `} target="_blank" rel="noreferrer noopener">
+            <i className="fab fa-fw fa-discord mr-2"></i>
+            <div className="text"><FontAwesomeIcon icon={faDiscord} className='mr-2' /> discord</div>
+          </a>
+          <a href="https://linkedin.com/in/abdibrokhim" className={`textButton flex items-center justify-start lg:justify-start my-1 transition text-gray-400 text-sm hover:text-white hover:underline hover:font-bold
+            `} target="_blank" rel="noreferrer noopener">
+            <i className="fab fa-fw fa-linkedin mr-2"></i>
+            <div className="text"><FontAwesomeIcon icon={faLinkedin} className='mr-2' /> linkedin</div>
+          </a>
+        </div>
         </header>
     );
 }

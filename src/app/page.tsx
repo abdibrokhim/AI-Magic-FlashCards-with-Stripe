@@ -762,6 +762,7 @@ export default function Home() {
           }
         </button>
       </div>
+      {/* social links */}
     </main>
   );
 }
